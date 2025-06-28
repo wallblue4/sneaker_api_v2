@@ -6,7 +6,7 @@ httpx==0.25.2
 pillow==10.1.0
 numpy==1.24.3
 pydantic==2.5.0
-pydantic-core==2.14.5
+pydantic-core==2.14.1  # <-- ¡Aquí está el cambio clave!
 pydantic-settings==2.1.0
 python-dotenv==1.0.0
 click==8.1.7
