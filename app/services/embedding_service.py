@@ -17,68 +17,52 @@ class EmbeddingService:
         self.api_key = settings.HF_API_TOKEN
         self.timeout = settings.REQUEST_TIMEOUT
         
-        # Usar Jina CLIP v2 en HuggingFace - 1024 dimensiones
-        self.model_url = "https://api-inference.huggingface.co/models/jinaai/jina-clip-v2"
-        self.model_name = "jinaai/jina-clip-v2"
+        # Usar CLIP que SÍ está disponible en HuggingFace
+        self.model_url = "https://api-inference.huggingface.co/models/openai/clip-vit-large-patch14"
+        self.model_name = "openai/clip-vit-large-patch14"
         
         if not self.api_key:
             logger.warning("⚠️ HF_API_TOKEN no configurado")
     
     async def get_image_embedding(self, image_data: bytes) -> List[float]:
         """
-        Generar embedding para imagen usando HuggingFace
-        Retorna exactamente 1024 dimensiones (compatible con tu BD)
+        Generar embedding usando CLIP en HuggingFace
         """
         try:
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
-            
-            # Convertir imagen a base64
-            image_b64 = base64.b64encode(image_data).decode('utf-8')
-            
-            payload = {
-                "inputs": {
-                    "image": image_b64
-                },
-                "options": {
-                    "wait_for_model": True,
-                    "use_cache": True
-                }
+                "Content-Type": "application/octet-stream"  # Para imágenes binarias
             }
             
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                logger.info("🔄 Generando embedding de imagen con HuggingFace...")
+                logger.info("🔄 Generando embedding de imagen con HuggingFace CLIP...")
                 
+                # Enviar imagen directamente como bytes
                 response = await client.post(
                     self.model_url,
-                    json=payload, 
+                    content=image_data,  # Enviar bytes directamente
                     headers=headers
                 )
                 
                 if response.status_code == 503:
-                    # Modelo cargándose, esperar
-                    logger.info("⏳ Modelo cargándose, reintentando en 3s...")
-                    await asyncio.sleep(3)
-                    response = await client.post(self.model_url, json=payload, headers=headers)
+                    logger.info("⏳ Modelo cargándose, reintentando en 5s...")
+                    await asyncio.sleep(5)
+                    response = await client.post(self.model_url, content=image_data, headers=headers)
                 
                 response.raise_for_status()
                 
-                # Procesar respuesta de HuggingFace
-                result = response.json()
+                # CLIP retorna embedding directo
+                embedding = response.json()
                 
-                # HuggingFace puede retornar diferentes formatos
-                if isinstance(result, list):
-                    embedding = result[0] if isinstance(result[0], list) else result
-                elif isinstance(result, dict) and "embeddings" in result:
-                    embedding = result["embeddings"][0]
-                else:
-                    embedding = result
+                # Verificar que sea lista
+                if not isinstance(embedding, list):
+                    raise Exception(f"Formato inesperado: {type(embedding)}")
                 
-                # Verificar dimensiones
-                if len(embedding) != 1024:
-                    logger.warning(f"⚠️ Embedding dimensión inesperada: {len(embedding)}")
+                # CLIP ViT-L/14 produce 768, necesitamos expandir a 1024
+                if len(embedding) == 768:
+                    # Expandir a 1024 con padding cero
+                    embedding = embedding + [0.0] * (1024 - 768)
+                    logger.info("📏 Expandido de 768 a 1024 dimensiones")
                 
                 logger.info(f"✅ Embedding generado: dimensión {len(embedding)}")
                 return embedding
@@ -94,19 +78,16 @@ class EmbeddingService:
             raise
     
     async def get_text_embedding(self, text: str) -> List[float]:
-        """Generar embedding para texto - 1024 dimensiones"""
+        """Generar embedding para texto"""
         try:
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json"
             }
             
+            # Para texto, usar formato JSON
             payload = {
-                "inputs": text,
-                "options": {
-                    "wait_for_model": True,
-                    "use_cache": True
-                }
+                "inputs": text
             }
             
             async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -114,25 +95,21 @@ class EmbeddingService:
                 
                 response = await client.post(
                     self.model_url,
-                    json=payload, 
+                    json=payload,
                     headers=headers
                 )
                 
                 if response.status_code == 503:
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(5)
                     response = await client.post(self.model_url, json=payload, headers=headers)
                 
                 response.raise_for_status()
                 
-                result = response.json()
+                embedding = response.json()
                 
-                # Procesar respuesta similar a imagen
-                if isinstance(result, list):
-                    embedding = result[0] if isinstance(result[0], list) else result
-                elif isinstance(result, dict) and "embeddings" in result:
-                    embedding = result["embeddings"][0]
-                else:
-                    embedding = result
+                # Expandir si es necesario
+                if len(embedding) == 768:
+                    embedding = embedding + [0.0] * (1024 - 768)
                 
                 return embedding
                 
@@ -141,25 +118,27 @@ class EmbeddingService:
             raise
     
     async def health_check(self) -> bool:
-        """Verificar que HuggingFace API está funcionando"""
+        """Health check simplificado"""
         try:
             if not self.api_key:
                 return False
                 
             headers = {"Authorization": f"Bearer {self.api_key}"}
             
-            test_timeout = httpx.Timeout(10.0)
+            # Test con imagen pequeña
+            test_image = Image.new('RGB', (100, 100), color='red')
+            img_buffer = io.BytesIO()
+            test_image.save(img_buffer, format='JPEG')
+            test_data = img_buffer.getvalue()
+            
+            test_timeout = httpx.Timeout(15.0)
             async with httpx.AsyncClient(timeout=test_timeout) as client:
                 response = await client.post(
                     self.model_url,
-                    json={
-                        "inputs": "health check test",
-                        "options": {"wait_for_model": False}
-                    },
-                    headers=headers
+                    content=test_data,
+                    headers={**headers, "Content-Type": "application/octet-stream"}
                 )
                 
-                # 200 = OK, 503 = modelo disponible pero cargándose
                 return response.status_code in [200, 503]
                 
         except Exception as e:
@@ -171,9 +150,9 @@ class EmbeddingService:
         return {
             "service": "HuggingFace Inference API",
             "model": self.model_name,
-            "dimension": 1024,  # Confirmar 1024 dimensiones
+            "dimension": 1024,  # Expandido desde 768
             "api_configured": bool(self.api_key),
             "base_url": self.model_url,
             "provider": "huggingface",
-            "compatible_with_bd": True
+            "note": "CLIP ViT-L/14 expandido de 768 a 1024 dims"
         }
