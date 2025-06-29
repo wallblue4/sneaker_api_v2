@@ -10,12 +10,12 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     
     # APIs externas
-    JINA_API_KEY: str = ""
+    HF_API_TOKEN: str = os.getenv("HF_API_TOKEN", "")
     PINECONE_API_KEY: str = ""
     PINECONE_INDEX_NAME: str = "sneaker-embeddings"
     
     # Configuración CLIP (matching tu migración)
-    EMBEDDING_DIMENSION: int = 768  # ViT-L/14 como en tu script
+    EMBEDDING_DIMENSION: int = 1024  # ViT-L/14 como en tu script
     
     # Límites para Render free tier
     MAX_IMAGE_SIZE: int = 5 * 1024 * 1024  # 5MB
