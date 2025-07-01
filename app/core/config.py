@@ -1,7 +1,7 @@
 # app/core/config.py
 import os
 from typing import List
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings  
 
 class Settings(BaseSettings):
     # Google Cloud configuración
