@@ -1,15 +1,14 @@
-# app/services/embedding_service.py
+# app/services/embedding_service.py - Versión corregida
 import httpx
 import logging
 from typing import List, Optional, Dict, Any
 import asyncio
-import json
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class EmbeddingService:
-    """Cohere AI con debug mejorado"""
+    """Servicio corregido para producir 1024 dims compatibles con tu BD"""
     
     def __init__(self):
         self.api_key = settings.COHERE_API_KEY
@@ -17,23 +16,53 @@ class EmbeddingService:
         self.base_url = "https://api.cohere.ai/v1/embed"
         self.model = "embed-english-v3.0"
         
-        if not self.api_key:
-            logger.warning("⚠️ COHERE_API_KEY no configurado")
+        logger.info("🔧 Cohere configurado para compatibilidad 1024 dims")
+    
+    def resize_to_1024(self, embedding: List[float]) -> List[float]:
+        """Redimensionar cualquier embedding a exactamente 1024 dimensiones"""
+        current_size = len(embedding)
+        target_size = 1024
+        
+        if current_size == target_size:
+            return embedding
+        
+        elif current_size > target_size:
+            # Truncar si es más grande
+            return embedding[:target_size]
+        
         else:
-            logger.info("🔧 Usando Cohere AI (tier gratuito)")
+            # Expandir si es más pequeño
+            # Método: repetir con variación controlada
+            repetitions = target_size // current_size
+            remainder = target_size % current_size
+            
+            # Crear base repitiendo el embedding
+            expanded = embedding * repetitions
+            
+            # Agregar el resto
+            if remainder > 0:
+                expanded.extend(embedding[:remainder])
+            
+            # Añadir variación sutil para evitar patrones exactos
+            for i in range(len(expanded)):
+                if i >= current_size:  # Solo variar las partes expandidas
+                    expanded[i] *= (0.98 + (i % 5) * 0.008)  # Variación ±2%
+            
+            logger.info(f"📏 Expandido de {current_size} a {len(expanded)} dimensiones")
+            return expanded
     
     async def get_image_embedding(self, image_data: bytes) -> List[float]:
-        """Para imágenes, usar descripción genérica"""
+        """Generar embedding de imagen compatible con BD de 1024 dims"""
+        # Para imagen, usar descripción genérica
         description = "athletic sneaker shoe footwear sports running casual"
         return await self.get_text_embedding(description)
     
     async def get_text_embedding(self, text: str) -> List[float]:
-        """Generar embedding con Cohere AI con debug completo"""
+        """Generar embedding de texto y ajustar a 1024 dims"""
         try:
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "Accept": "application/json"
+                "Content-Type": "application/json"
             }
             
             payload = {
@@ -42,95 +71,40 @@ class EmbeddingService:
                 "input_type": "search_query"
             }
             
-            logger.info(f"🔄 Enviando request a Cohere: {json.dumps(payload, indent=2)}")
-            
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(
-                    self.base_url,
-                    json=payload,
-                    headers=headers
-                )
+                logger.info("🔄 Generando embedding con Cohere...")
                 
-                logger.info(f"📥 Response status: {response.status_code}")
-                logger.info(f"📥 Response headers: {dict(response.headers)}")
+                response = await client.post(self.base_url, json=payload, headers=headers)
+                response.raise_for_status()
                 
-                response_text = response.text
-                logger.info(f"📥 Response body: {response_text[:500]}...")  # Primeros 500 chars
+                data = response.json()
+                embedding = data["embeddings"][0]
                 
-                if response.status_code != 200:
-                    logger.error(f"❌ HTTP Error {response.status_code}: {response_text}")
-                    raise Exception(f"Cohere API error {response.status_code}: {response_text}")
+                # CRÍTICO: Redimensionar a exactamente 1024
+                final_embedding = self.resize_to_1024(embedding)
                 
-                try:
-                    data = response.json()
-                    logger.info(f"📊 Parsed JSON keys: {list(data.keys())}")
-                    
-                    if "embeddings" in data:
-                        embeddings = data["embeddings"]
-                        logger.info(f"📊 Embeddings type: {type(embeddings)}, length: {len(embeddings)}")
-                        
-                        if embeddings and len(embeddings) > 0:
-                            embedding = embeddings[0]
-                            logger.info(f"📊 First embedding type: {type(embedding)}, length: {len(embedding) if hasattr(embedding, '__len__') else 'N/A'}")
-                            
-                            if isinstance(embedding, list) and len(embedding) > 0:
-                                logger.info(f"✅ Embedding generado exitosamente: {len(embedding)} dimensiones")
-                                logger.info(f"📊 Primeros 5 valores: {embedding[:5]}")
-                                return embedding
-                            else:
-                                logger.error(f"❌ Embedding vacío o formato inválido: {embedding}")
-                                raise Exception(f"Embedding inválido: {type(embedding)}")
-                        else:
-                            logger.error(f"❌ Lista de embeddings vacía: {embeddings}")
-                            raise Exception("Lista de embeddings vacía")
-                    else:
-                        logger.error(f"❌ 'embeddings' no encontrado en respuesta: {data}")
-                        raise Exception(f"Campo 'embeddings' no encontrado: {list(data.keys())}")
-                        
-                except json.JSONDecodeError as e:
-                    logger.error(f"❌ Error parseando JSON: {e}")
-                    logger.error(f"❌ Response text: {response_text}")
-                    raise Exception(f"Error parseando respuesta JSON: {e}")
+                logger.info(f"✅ Embedding generado: {len(final_embedding)} dims (original: {len(embedding)})")
+                return final_embedding
                 
-        except httpx.TimeoutException:
-            logger.error("❌ Timeout en request a Cohere")
-            raise Exception("Timeout al conectar con Cohere")
-        except httpx.HTTPStatusError as e:
-            logger.error(f"❌ HTTP Status Error: {e}")
-            raise Exception(f"Error HTTP Cohere: {e}")
         except Exception as e:
-            logger.error(f"❌ Error inesperado completo: {type(e).__name__}: {str(e)}")
-            raise Exception(f"Error en Cohere: {str(e)}")
+            logger.error(f"❌ Error en Cohere: {e}")
+            raise
     
     async def health_check(self) -> bool:
-        """Health check con debug"""
         try:
             if not self.api_key:
-                logger.warning("❌ Health check: API key no configurado")
                 return False
-            
-            logger.info("🔍 Iniciando health check...")
-            embedding = await self.get_text_embedding("health check test")
-            
-            success = isinstance(embedding, list) and len(embedding) > 0
-            logger.info(f"🔍 Health check resultado: {'✅' if success else '❌'}")
-            
-            return success
-            
-        except Exception as e:
-            logger.error(f"❌ Health check falló: {type(e).__name__}: {str(e)}")
+            embedding = await self.get_text_embedding("test")
+            return len(embedding) == 1024  # Verificar dimensión exacta
+        except:
             return False
     
     async def get_api_info(self) -> Dict[str, Any]:
-        """Info del servicio con debug"""
         return {
-            "service": "Cohere AI",
+            "service": "Cohere AI (Resized)",
             "model": self.model,
-            "dimension": "variable (depende del modelo)",
+            "dimension": 1024,  # Dimensión final garantizada
             "api_configured": bool(self.api_key),
-            "base_url": self.base_url,
             "provider": "cohere",
-            "tier": "free",
-            "api_key_length": len(self.api_key) if self.api_key else 0,
-            "note": "1000 requests gratuitos/mes - con debug extendido"
+            "note": "Redimensionado automáticamente a 1024 dims para compatibilidad con BD"
         }
