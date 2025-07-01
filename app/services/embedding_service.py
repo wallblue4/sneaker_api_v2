@@ -51,11 +51,35 @@ class EmbeddingService:
             logger.info(f"📏 Expandido de {current_size} a {len(expanded)} dimensiones")
             return expanded
     
+    # app/services/embedding_service.py
     async def get_image_embedding(self, image_data: bytes) -> List[float]:
-        """Generar embedding de imagen compatible con BD de 1024 dims"""
-        # Para imagen, usar descripción genérica
-        description = "athletic sneaker shoe footwear sports running casual"
-        return await self.get_text_embedding(description)
+        """Generar embedding con descripción más rica"""
+        
+        # En lugar de descripción genérica, usar múltiples descripciones
+        descriptions = [
+            "athletic running sneaker shoe",
+            "sports footwear casual shoe", 
+            "Nike Adidas Jordan sneaker",
+            "basketball training shoe",
+            "white black red blue sneaker"
+        ]
+        
+        # Promediar embeddings de múltiples descripciones
+        all_embeddings = []
+        for desc in descriptions:
+            embedding = await self._get_single_text_embedding(desc)
+            all_embeddings.append(embedding)
+        
+        # Promedio ponderado
+        final_embedding = self.average_embeddings(all_embeddings)
+        return self.resize_to_1024(final_embedding)
+
+    def average_embeddings(self, embeddings_list: List[List[float]]) -> List[float]:
+        """Promediar múltiples embeddings"""
+        import numpy as np
+        embeddings_array = np.array(embeddings_list)
+        averaged = np.mean(embeddings_array, axis=0)
+        return averaged.tolist()
     
     async def get_text_embedding(self, text: str) -> List[float]:
         """Generar embedding de texto y ajustar a 1024 dims"""
