@@ -35,10 +35,12 @@ async def lifespan(app: FastAPI):
     
     try:
         # Importar servicios dinámicamente para ahorrar memoria
+        from app.core.google_auth import setup_google_credentials
+        setup_google_credentials()
         from app.services.embedding_service import EmbeddingService
         from app.services.pinecone_service import PineconeService
         
-        logger.info("📦 Inicializando servicios externos...")
+        logger.info("📦 Inicializando servicios con Google Multimodal...")
         
         # Inicializar servicios
         embedding_service = EmbeddingService()
