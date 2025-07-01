@@ -1,15 +1,21 @@
+# requirements.txt - Versiones compatibles con Render
 fastapi==0.104.1
-uvicorn==0.24.0
+uvicorn[standard]==0.24.0
+httpx==0.25.0
+pillow==10.0.1
+pinecone-client==2.2.4
+pydantic==2.4.2
 python-multipart==0.0.6
-pinecone-client==3.0.0
-httpx==0.25.2
-pillow==10.1.0
-numpy==1.24.3
-pydantic==2.5.0
-pydantic-core==2.14.1  # <-- ¡Aquí está el cambio clave!
-pydantic-settings==2.1.0
+pydantic-settings==2.0.3
 python-dotenv==1.0.0
-click==8.1.7
-h11==0.14.0
-google-cloud-aiplatform==1.38.0
-vertexai==1.38.0
+
+# ✅ Google Cloud - Versiones compatibles actualizadas
+google-cloud-aiplatform==1.71.1
+vertexai==1.71.1
+
+# Dependencias adicionales de Google Cloud que pueden faltar
+google-auth==2.27.0
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+grpcio==1.60.0
+protobuf==4.25.1
