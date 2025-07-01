@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     
     # APIs externas
-    HF_API_TOKEN: str = os.getenv("HF_API_TOKEN", "")
+##HF_API_TOKEN: str = os.getenv("HF_API_TOKEN", "")
     PINECONE_API_KEY: str = ""
     PINECONE_INDEX_NAME: str = "sneaker-embeddings"
     
