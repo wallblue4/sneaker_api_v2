@@ -11,3 +11,5 @@ pydantic-settings==2.1.0
 python-dotenv==1.0.0
 click==8.1.7
 h11==0.14.0
+google-cloud-aiplatform==1.38.0
+vertexai==1.38.0

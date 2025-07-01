@@ -1,134 +1,193 @@
-# app/services/embedding_service.py - Versión corregida
-import httpx
+# app/services/embedding_service.py
 import logging
-from typing import List, Optional, Dict, Any
+import tempfile
+import os
+from typing import List, Dict, Any
 import asyncio
 from app.core.config import settings
+
+# Importaciones de Google Cloud (instalar en requirements.txt)
+try:
+    import vertexai
+    from vertexai.vision_models import Image as VertexImage, MultiModalEmbeddingModel
+    GOOGLE_AVAILABLE = True
+except ImportError:
+    GOOGLE_AVAILABLE = False
+    vertexai = None
+    VertexImage = None
+    MultiModalEmbeddingModel = None
 
 logger = logging.getLogger(__name__)
 
 class EmbeddingService:
-    """Servicio corregido para producir 1024 dims compatibles con tu BD"""
+    """Google Multimodal Embeddings - 1408 dimensiones"""
     
     def __init__(self):
-        self.api_key = settings.COHERE_API_KEY
+        self.project_id = settings.GOOGLE_CLOUD_PROJECT_ID
+        self.location = settings.GOOGLE_CLOUD_LOCATION
+        self.model = None
+        self.cost_per_embedding = 0.0001  # $0.0001 por embedding
+        self.embedding_count = 0
         self.timeout = settings.REQUEST_TIMEOUT
-        self.base_url = "https://api.cohere.ai/v1/embed"
-        self.model = "embed-english-v3.0"
         
-        logger.info("🔧 Cohere configurado para compatibilidad 1024 dims")
+        if not GOOGLE_AVAILABLE:
+            logger.error("❌ Google Vertex AI no disponible. Instalar: pip install google-cloud-aiplatform")
+            return
+        
+        if not self.project_id:
+            logger.warning("⚠️ GOOGLE_CLOUD_PROJECT_ID no configurado")
+            return
+        
+        # Inicializar en background para no bloquear startup
+        asyncio.create_task(self._initialize_google_model())
     
-    def resize_to_1024(self, embedding: List[float]) -> List[float]:
-        """Redimensionar cualquier embedding a exactamente 1024 dimensiones"""
-        current_size = len(embedding)
-        target_size = 1024
-        
-        if current_size == target_size:
-            return embedding
-        
-        elif current_size > target_size:
-            # Truncar si es más grande
-            return embedding[:target_size]
-        
-        else:
-            # Expandir si es más pequeño
-            # Método: repetir con variación controlada
-            repetitions = target_size // current_size
-            remainder = target_size % current_size
-            
-            # Crear base repitiendo el embedding
-            expanded = embedding * repetitions
-            
-            # Agregar el resto
-            if remainder > 0:
-                expanded.extend(embedding[:remainder])
-            
-            # Añadir variación sutil para evitar patrones exactos
-            for i in range(len(expanded)):
-                if i >= current_size:  # Solo variar las partes expandidas
-                    expanded[i] *= (0.98 + (i % 5) * 0.008)  # Variación ±2%
-            
-            logger.info(f"📏 Expandido de {current_size} a {len(expanded)} dimensiones")
-            return expanded
-    
-    # app/services/embedding_service.py
-    async def get_image_embedding(self, image_data: bytes) -> List[float]:
-        """Generar embedding con descripción más rica"""
-        
-        # En lugar de descripción genérica, usar múltiples descripciones
-        descriptions = [
-            "athletic running sneaker shoe",
-            "sports footwear casual shoe", 
-            "Nike Adidas Jordan sneaker",
-            "basketball training shoe",
-            "white black red blue sneaker"
-        ]
-        
-        # Promediar embeddings de múltiples descripciones
-        all_embeddings = []
-        for desc in descriptions:
-            embedding = await self._get_single_text_embedding(desc)
-            all_embeddings.append(embedding)
-        
-        # Promedio ponderado
-        final_embedding = self.average_embeddings(all_embeddings)
-        return self.resize_to_1024(final_embedding)
-
-    def average_embeddings(self, embeddings_list: List[List[float]]) -> List[float]:
-        """Promediar múltiples embeddings"""
-        import numpy as np
-        embeddings_array = np.array(embeddings_list)
-        averaged = np.mean(embeddings_array, axis=0)
-        return averaged.tolist()
-    
-    async def get_text_embedding(self, text: str) -> List[float]:
-        """Generar embedding de texto y ajustar a 1024 dims"""
+    async def _initialize_google_model(self):
+        """Inicializar modelo Google Multimodal de forma asíncrona"""
         try:
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
+            logger.info("🔄 Inicializando Google Multimodal Embeddings...")
             
-            payload = {
-                "texts": [text],
-                "model": self.model,
-                "input_type": "search_query"
-            }
+            # Inicializar Vertex AI
+            vertexai.init(project=self.project_id, location=self.location)
             
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                logger.info("🔄 Generando embedding con Cohere...")
+            # Cargar modelo
+            self.model = MultiModalEmbeddingModel.from_pretrained("multimodalembedding@001")
+            
+            logger.info("✅ Google Multimodal Embeddings inicializado")
+            logger.info(f"📊 Proyecto: {self.project_id}")
+            logger.info(f"📊 Región: {self.location}")
+            logger.info(f"📊 Dimensiones: 1408")
+            
+        except Exception as e:
+            logger.error(f"❌ Error inicializando Google Multimodal: {e}")
+            self.model = None
+    
+    async def get_image_embedding(self, image_data: bytes) -> List[float]:
+        """Generar embedding de imagen con Google Multimodal (1408 dims)"""
+        
+        # Esperar inicialización del modelo
+        max_wait = 30
+        waited = 0
+        while self.model is None and waited < max_wait:
+            logger.info("⏳ Esperando inicialización de Google Multimodal...")
+            await asyncio.sleep(2)
+            waited += 2
+        
+        if self.model is None:
+            raise Exception("❌ Google Multimodal no disponible")
+        
+        try:
+            # Crear archivo temporal para la imagen
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+                temp_file.write(image_data)
+                temp_path = temp_file.name
+            
+            try:
+                logger.info("🔄 Generando embedding con Google Multimodal...")
                 
-                response = await client.post(self.base_url, json=payload, headers=headers)
-                response.raise_for_status()
+                # Cargar imagen para Vertex AI
+                vertex_image = VertexImage.load_from_file(temp_path)
                 
-                data = response.json()
-                embedding = data["embeddings"][0]
+                # Generar embedding con dimensiones máximas (1408)
+                embeddings_response = self.model.get_embeddings(
+                    image=vertex_image,
+                    dimension=1408  # Dimensión exacta de tu BD
+                )
                 
-                # CRÍTICO: Redimensionar a exactamente 1024
-                final_embedding = self.resize_to_1024(embedding)
+                # Extraer el embedding
+                embedding = embeddings_response.image_embedding
                 
-                logger.info(f"✅ Embedding generado: {len(final_embedding)} dims (original: {len(embedding)})")
-                return final_embedding
+                # Convertir a lista
+                if hasattr(embedding, 'tolist'):
+                    embedding_list = embedding.tolist()
+                else:
+                    embedding_list = list(embedding)
+                
+                # Verificar dimensiones
+                if len(embedding_list) != 1408:
+                    logger.warning(f"⚠️ Embedding dimensión inesperada: {len(embedding_list)}")
+                
+                self.embedding_count += 1
+                
+                logger.info(f"✅ Google Multimodal embedding generado: {len(embedding_list)} dims")
+                logger.info(f"💰 Costo acumulado: ${self.embedding_count * self.cost_per_embedding:.4f}")
+                
+                return embedding_list
+                
+            finally:
+                # Limpiar archivo temporal
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
                 
         except Exception as e:
-            logger.error(f"❌ Error en Cohere: {e}")
-            raise
+            logger.error(f"❌ Error generando embedding con Google Multimodal: {e}")
+            raise Exception(f"Error en Google Multimodal: {str(e)}")
+    
+    async def get_text_embedding(self, text: str) -> List[float]:
+        """Generar embedding de texto con Google Multimodal"""
+        
+        if self.model is None:
+            raise Exception("❌ Google Multimodal no disponible")
+        
+        try:
+            logger.info(f"🔄 Generando embedding de texto: '{text[:50]}...'")
+            
+            # Generar embedding de texto
+            embeddings_response = self.model.get_embeddings(
+                text=text,
+                dimension=1408
+            )
+            
+            # Extraer embedding
+            embedding = embeddings_response.text_embedding
+            
+            if hasattr(embedding, 'tolist'):
+                embedding_list = embedding.tolist()
+            else:
+                embedding_list = list(embedding)
+            
+            logger.info(f"✅ Texto embedding generado: {len(embedding_list)} dims")
+            
+            return embedding_list
+            
+        except Exception as e:
+            logger.error(f"❌ Error en texto embedding Google Multimodal: {e}")
+            raise Exception(f"Error en texto Google Multimodal: {str(e)}")
     
     async def health_check(self) -> bool:
+        """Health check de Google Multimodal"""
         try:
-            if not self.api_key:
+            if not GOOGLE_AVAILABLE:
+                logger.warning("❌ Google Vertex AI no disponible")
                 return False
-            embedding = await self.get_text_embedding("test")
-            return len(embedding) == 1024  # Verificar dimensión exacta
-        except:
+            
+            if not self.project_id:
+                logger.warning("❌ GOOGLE_CLOUD_PROJECT_ID no configurado")
+                return False
+            
+            # Verificar si el modelo está inicializado
+            model_ready = self.model is not None
+            logger.info(f"🔍 Google Multimodal health check: {'✅' if model_ready else '❌'}")
+            
+            return model_ready
+            
+        except Exception as e:
+            logger.error(f"❌ Health check Google Multimodal falló: {e}")
             return False
     
     async def get_api_info(self) -> Dict[str, Any]:
+        """Información del servicio Google Multimodal"""
         return {
-            "service": "Cohere AI (Resized)",
-            "model": self.model,
-            "dimension": 1024,  # Dimensión final garantizada
-            "api_configured": bool(self.api_key),
-            "provider": "cohere",
-            "note": "Redimensionado automáticamente a 1024 dims para compatibilidad con BD"
+            "service": "Google Multimodal Embeddings",
+            "model": "multimodalembedding@001",
+            "dimension": 1408,
+            "api_configured": self.model is not None,
+            "provider": "google_vertex_ai",
+            "project_id": self.project_id,
+            "location": self.location,
+            "cost_per_embedding": self.cost_per_embedding,
+            "embeddings_generated": self.embedding_count,
+            "google_vertex_available": GOOGLE_AVAILABLE,
+            "note": "Compatible con BD de 1408 dimensiones"
         }

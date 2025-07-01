@@ -1,46 +1,37 @@
 # app/core/config.py
-from pydantic_settings import BaseSettings
-from typing import List
 import os
+from typing import List
+from pydantic import BaseSettings
 
 class Settings(BaseSettings):
-    # Servidor
-    HOST: str = "0.0.0.0"
-    PORT: int = int(os.getenv("PORT", "8000"))
-    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+    # Google Cloud configuración
+    GOOGLE_CLOUD_PROJECT_ID: str = os.getenv("GOOGLE_CLOUD_PROJECT_ID", "")
+    GOOGLE_CLOUD_LOCATION: str = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
     
-    # APIs externas
-    COHERE_API_KEY: str = os.getenv("COHERE_API_KEY", "")
-    PINECONE_API_KEY: str = ""
-    PINECONE_INDEX_NAME: str = "sneaker-embeddings"
+    # Pinecone configuración (actualizada para 1408 dims)
+    PINECONE_API_KEY: str = os.getenv("PINECONE_API_KEY", "")
+    PINECONE_INDEX_NAME: str = os.getenv("PINECONE_INDEX_NAME", "sneaker-embeddings")
+    EMBEDDING_DIMENSION: int = 1408  # ✅ Actualizado a Google Multimodal
     
-    # Configuración CLIP (matching tu migración)
-    EMBEDDING_DIMENSION: int = 1024  # ViT-L/14 como en tu script
-    
-    # Límites para Render free tier
-    MAX_IMAGE_SIZE: int = 5 * 1024 * 1024  # 5MB
-    REQUEST_TIMEOUT: int = 30
-    DEFAULT_TOP_K: int = 5
+    # Configuración de aplicación
+    MAX_IMAGE_SIZE: int = 10 * 1024 * 1024  # 10MB
     MAX_TOP_K: int = 20
+    REQUEST_TIMEOUT: float = 60.0  # Más tiempo para Google API
+    
+    # Configuración de servidor
+    HOST: str = "0.0.0.0"
+    PORT: int = int(os.getenv("PORT", 10000))
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production")
     
     # CORS
-    ALLOWED_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "*"  # En producción, especificar dominios exactos
-    ]
-    
-    @property
-    def is_production(self) -> bool:
-        return self.ENVIRONMENT == "production"
+    ALLOWED_ORIGINS: List[str] = ["*"]  # En producción, especificar dominios exactos
     
     @property
     def is_development(self) -> bool:
         return self.ENVIRONMENT == "development"
     
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT == "production"
 
 settings = Settings()
