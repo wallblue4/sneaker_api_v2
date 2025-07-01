@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     
     # APIs externas
-    REPLICATE_API_TOKEN: str = os.getenv("REPLICATE_API_TOKEN", "")
+    COHERE_API_KEY: str = os.getenv("COHERE_API_KEY", "")
     PINECONE_API_KEY: str = ""
     PINECONE_INDEX_NAME: str = "sneaker-embeddings"
     
