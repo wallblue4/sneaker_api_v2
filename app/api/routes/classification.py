@@ -1,6 +1,6 @@
 # app/api/routes/classification.py
 from fastapi import APIRouter, UploadFile, HTTPException, Depends, File, Query
-from typing import List, Optional
+from typing import List, Optional, Dict
 import time
 import logging
 from datetime import datetime
@@ -260,7 +260,7 @@ async def search_sneakers_by_text(
     except Exception as e:
         logger.error(f"❌ Error en búsqueda por texto: {e}")
         raise HTTPException(500, f"Error en búsqueda: {str(e)}")
-        
+
 @router.get("/brands")
 async def get_available_brands(
    pinecone_service = Depends(get_services)
