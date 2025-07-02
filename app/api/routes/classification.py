@@ -20,20 +20,86 @@ from app.core.config import settings
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
+async def search_unique_models_optimized(
+    pinecone_service,
+    embedding: List[float],
+    target_unique_models: int,
+    filter_dict: Optional[Dict] = None
+) -> List[Dict]:
+    """
+    Versión integrada y optimizada para encontrar modelos únicos
+    """
+    from app.core.config import settings
+    
+    unique_models = {}
+    search_size = target_unique_models * 3  # Empezar con 3x
+    max_iterations = 3
+    
+    for iteration in range(max_iterations):
+        current_search_size = min(search_size, 100)  # Límite razonable
+        
+        logger.info(f"🔍 Iteración {iteration + 1}: buscando {current_search_size} vectores")
+        
+        search_results = await pinecone_service.search_similar(
+            embedding=embedding,
+            top_k=current_search_size,
+            filter_dict=filter_dict
+        )
+        
+        if not search_results:
+            break
+        
+        # Agrupar por modelo_name
+        initial_count = len(unique_models)
+        for result in search_results:
+            model_name = result.get("model_name")
+            
+            if not model_name:
+                continue
+                
+            # Mantener el mejor score por modelo
+            if (model_name not in unique_models or 
+                result["similarity_score"] > unique_models[model_name]["similarity_score"]):
+                unique_models[model_name] = result
+        
+        new_models_found = len(unique_models) - initial_count
+        logger.info(f"📊 Encontrados {len(unique_models)} modelos únicos (+{new_models_found} nuevos)")
+        
+        # Si ya tenemos suficientes, terminar
+        if len(unique_models) >= target_unique_models:
+            break
+        
+        # Si no encontramos nuevos modelos, expandir búsqueda
+        if new_models_found == 0:
+            search_size = min(search_size * 2, 100)
+        else:
+            search_size = min(search_size + 20, 100)
+    
+    # Retornar top_k modelos únicos ordenados por similitud
+    sorted_models = sorted(
+        unique_models.values(),
+        key=lambda x: x["similarity_score"],
+        reverse=True
+    )[:target_unique_models]
+    
+    logger.info(f"✅ Resultado final: {len(sorted_models)} modelos únicos")
+    return sorted_models
+
 @router.post("/classify", response_model=ClassificationResponse)
 async def classify_sneaker_by_image(
     image: UploadFile = File(..., description="Imagen de sneaker a clasificar"),
-    top_k: int = Query(5, ge=1, le=20, description="Número de resultados a retornar"),
+    top_k: int = Query(5, ge=1, le=20, description="Número de modelos únicos a retornar"),
     brand: Optional[str] = Query(None, description="Filtrar por marca específica"),
     min_price: Optional[float] = Query(None, ge=0, description="Precio mínimo"),
     max_price: Optional[float] = Query(None, ge=0, description="Precio máximo"),
     services = Depends(get_services)
 ):
     """
-    Clasificar sneaker subiendo una imagen
+    Clasificar sneaker garantizando modelos únicos diferentes
     
     - **image**: Archivo de imagen (JPEG, PNG, etc.)
-    - **top_k**: Número de resultados similares (1-20)
+    - **top_k**: Número de MODELOS ÚNICOS similares (1-20)
     - **brand**: Filtrar solo por una marca específica
     - **min_price/max_price**: Filtrar por rango de precios
     """
@@ -45,11 +111,11 @@ async def classify_sneaker_by_image(
         logger.info(f"📷 Procesando imagen: {image.filename}")
         image_data, image_info = await validate_and_process_image(image)
         
-        # 2. Generar embedding usando Jina AI
+        # 2. Generar embedding
         logger.info("🔄 Generando embedding con Jina AI...")
         embedding = await embedding_service.get_image_embedding(image_data)
         
-        # 3. Preparar filtros para Pinecone
+        # 3. Preparar filtros
         filter_dict = {}
         filters_applied = {}
         
@@ -67,19 +133,20 @@ async def classify_sneaker_by_image(
                 filters_applied["max_price"] = max_price
             filter_dict["price"] = price_filter
         
-        # 4. Buscar similares en Pinecone
-        logger.info(f"🔍 Buscando {top_k} similares en Pinecone...")
-        search_results = await pinecone_service.search_similar(
-            embedding, 
-            top_k, 
-            filter_dict if filter_dict else None
+        # 4. 🎯 NUEVA LÓGICA: Búsqueda optimizada por modelos únicos
+        logger.info(f"🔍 Buscando {top_k} modelos únicos en Pinecone...")
+        unique_results = await search_unique_models_optimized(
+            pinecone_service=pinecone_service,
+            embedding=embedding,
+            target_unique_models=top_k,
+            filter_dict=filter_dict if filter_dict else None
         )
         
         # 5. Formatear resultados
         results = []
-        for result in search_results:
+        for i, result in enumerate(unique_results):
             sneaker_result = SneakerResult(
-                rank=result["rank"],
+                rank=i + 1,  # Rank basado en orden final
                 similarity_score=result["similarity_score"],
                 confidence_percentage=result["confidence_percentage"],
                 confidence_level=get_confidence_level(result["similarity_score"]),
@@ -96,7 +163,7 @@ async def classify_sneaker_by_image(
         
         processing_time = (time.time() - start_time) * 1000
         
-        logger.info(f"✅ Clasificación completada en {processing_time:.2f}ms - {len(results)} resultados")
+        logger.info(f"✅ Clasificación completada en {processing_time:.2f}ms - {len(results)} modelos únicos")
         
         return ClassificationResponse(
             processing_time_ms=processing_time,
@@ -107,12 +174,13 @@ async def classify_sneaker_by_image(
                 "embedding_service": "Jina AI",
                 "model": "jina-clip-v2",
                 "dimension": settings.EMBEDDING_DIMENSION,
-                "filters_applied": filters_applied
+                "filters_applied": filters_applied,
+                "search_strategy": "unique_models_optimized"
             }
         )
         
     except HTTPException:
-        raise  # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f"❌ Error clasificando imagen: {e}")
         raise HTTPException(
@@ -125,80 +193,74 @@ async def search_sneakers_by_text(
    request: SearchByTextRequest,
    services = Depends(get_services)
 ):
-   """
-   Buscar sneakers usando descripción de texto
-   
-   - **query**: Descripción del sneaker (ej: "red nike air max")
-   - **top_k**: Número de resultados (1-20)
-   - **brand**: Filtrar por marca específica
-   - **min_price/max_price**: Filtrar por rango de precios
-   """
-   start_time = time.time()
-   embedding_service, pinecone_service = services
-   
-   try:
-       # 1. Generar embedding del texto
-       logger.info(f"🔄 Generando embedding para: '{request.query}'")
-       embedding = await embedding_service.get_text_embedding(request.query)
-       
-       # 2. Preparar filtros
-       filter_dict = {}
-       filters_applied = {}
-       
-       if request.brand:
-           filter_dict["brand"] = {"$eq": request.brand}
-           filters_applied["brand"] = request.brand
-           
-       if request.min_price is not None or request.max_price is not None:
-           price_filter = {}
-           if request.min_price is not None:
-               price_filter["$gte"] = request.min_price
-               filters_applied["min_price"] = request.min_price
-           if request.max_price is not None:
-               price_filter["$lte"] = request.max_price
-               filters_applied["max_price"] = request.max_price
-           filter_dict["price"] = price_filter
-       
-       # 3. Buscar en Pinecone
-       search_results = await pinecone_service.search_similar(
-           embedding, 
-           request.top_k, 
-           filter_dict if filter_dict else None
-       )
-       
-       # 4. Formatear resultados
-       results = []
-       for result in search_results:
-           sneaker_result = SneakerResult(
-               rank=result["rank"],
-               similarity_score=result["similarity_score"],
-               confidence_percentage=result["confidence_percentage"],
-               confidence_level=get_confidence_level(result["similarity_score"]),
-               model_name=result["model_name"],
-               brand=result["brand"],
-               color=result.get("color"),
-               size=result.get("size"),
-               price=result.get("price"),
-               description=result.get("description"),
-               image_path=result.get("image_path"),
-               original_db_id=result.get("original_db_id")
-           )
-           results.append(sneaker_result)
-       
-       processing_time = (time.time() - start_time) * 1000
-       
-       return SearchResponse(
-           processing_time_ms=processing_time,
-           query=request.query,
-           results=results,
-           total_matches_found=len(results),
-           filters_applied=filters_applied
-       )
-       
-   except Exception as e:
-       logger.error(f"❌ Error en búsqueda por texto: {e}")
-       raise HTTPException(500, f"Error en búsqueda: {str(e)}")
-
+    """Búsqueda por texto también con modelos únicos"""
+    start_time = time.time()
+    embedding_service, pinecone_service = services
+    
+    try:
+        # 1. Generar embedding del texto
+        logger.info(f"🔄 Generando embedding para: '{request.query}'")
+        embedding = await embedding_service.get_text_embedding(request.query)
+        
+        # 2. Preparar filtros
+        filter_dict = {}
+        filters_applied = {}
+        
+        if request.brand:
+            filter_dict["brand"] = {"$eq": request.brand}
+            filters_applied["brand"] = request.brand
+            
+        if request.min_price is not None or request.max_price is not None:
+            price_filter = {}
+            if request.min_price is not None:
+                price_filter["$gte"] = request.min_price
+                filters_applied["min_price"] = request.min_price
+            if request.max_price is not None:
+                price_filter["$lte"] = request.max_price
+                filters_applied["max_price"] = request.max_price
+            filter_dict["price"] = price_filter
+        
+        # 3. 🎯 USAR LA MISMA LÓGICA OPTIMIZADA
+        unique_results = await search_unique_models_optimized(
+            pinecone_service=pinecone_service,
+            embedding=embedding,
+            target_unique_models=request.top_k,
+            filter_dict=filter_dict if filter_dict else None
+        )
+        
+        # 4. Formatear resultados
+        results = []
+        for i, result in enumerate(unique_results):
+            sneaker_result = SneakerResult(
+                rank=i + 1,
+                similarity_score=result["similarity_score"],
+                confidence_percentage=result["confidence_percentage"],
+                confidence_level=get_confidence_level(result["similarity_score"]),
+                model_name=result["model_name"],
+                brand=result["brand"],
+                color=result.get("color"),
+                size=result.get("size"),
+                price=result.get("price"),
+                description=result.get("description"),
+                image_path=result.get("image_path"),
+                original_db_id=result.get("original_db_id")
+            )
+            results.append(sneaker_result)
+        
+        processing_time = (time.time() - start_time) * 1000
+        
+        return SearchResponse(
+            processing_time_ms=processing_time,
+            query=request.query,
+            results=results,
+            total_matches_found=len(results),
+            filters_applied=filters_applied
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Error en búsqueda por texto: {e}")
+        raise HTTPException(500, f"Error en búsqueda: {str(e)}")
+        
 @router.get("/brands")
 async def get_available_brands(
    pinecone_service = Depends(get_services)

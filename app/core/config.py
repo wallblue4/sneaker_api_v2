@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     PINECONE_API_KEY: str = os.getenv("PINECONE_API_KEY", "")
     PINECONE_INDEX_NAME: str = os.getenv("PINECONE_INDEX_NAME", "sneaker-embeddings")
     EMBEDDING_DIMENSION: int = 1408  # ✅ Actualizado a Google Multimodal
+
+    CLASSIFICATION_SEARCH_MULTIPLIER = 3  # Buscar 3x más vectores inicialmente
+    CLASSIFICATION_MAX_SEARCH = 100       # Límite máximo de búsqueda
+    CLASSIFICATION_BATCH_SIZE = 20        # Tamaño de batch incremental
+    CLASSIFICATION_MAX_ITERATIONS: int = 3  # Límite de iteraciones para evitar bucles infinitos
     
     # Configuración de aplicación
     MAX_IMAGE_SIZE: int = 10 * 1024 * 1024  # 10MB
