@@ -21,6 +21,10 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+# app/api/routes/classification.py
+
+# app/api/routes/classification.py
+
 async def search_unique_models_optimized(
     pinecone_service,
     embedding: List[float],
@@ -28,29 +32,32 @@ async def search_unique_models_optimized(
     filter_dict: Optional[Dict] = None
 ) -> List[Dict]:
     """
-    Versión integrada y optimizada para encontrar modelos únicos
+    Búsqueda optimizada para encontrar modelos únicos
     """
-    from app.core.config import settings
-    
     unique_models = {}
-    search_size = target_unique_models * 3  # Empezar con 3x
+    search_size = target_unique_models * 3
     max_iterations = 3
+    max_search_limit = 100
+    
+    logger.info(f"🎯 Búsqueda optimizada: objetivo={target_unique_models} modelos únicos")
     
     for iteration in range(max_iterations):
-        current_search_size = min(search_size, 100)  # Límite razonable
+        current_search_size = min(search_size, max_search_limit)
         
         logger.info(f"🔍 Iteración {iteration + 1}: buscando {current_search_size} vectores")
         
+        # 🎯 CORRECCIÓN: Usar el nombre correcto del parámetro
         search_results = await pinecone_service.search_similar(
-            embedding=embedding,
-            top_k=current_search_size,
-            filter_dict=filter_dict
+            query_embedding=embedding,     # ✅ CORRECTO: query_embedding
+            top_k=current_search_size,     # ✅ CORRECTO: top_k
+            filter_dict=filter_dict        # ✅ CORRECTO: filter_dict
         )
         
         if not search_results:
+            logger.warning("⚠️ No se encontraron resultados en Pinecone")
             break
         
-        # Agrupar por modelo_name
+        # Procesar resultados y agrupar por modelo
         initial_count = len(unique_models)
         for result in search_results:
             model_name = result.get("model_name")
@@ -58,32 +65,39 @@ async def search_unique_models_optimized(
             if not model_name:
                 continue
                 
-            # Mantener el mejor score por modelo
+            # Si es un modelo nuevo O tiene mejor score que el existente
             if (model_name not in unique_models or 
                 result["similarity_score"] > unique_models[model_name]["similarity_score"]):
                 unique_models[model_name] = result
         
         new_models_found = len(unique_models) - initial_count
-        logger.info(f"📊 Encontrados {len(unique_models)} modelos únicos (+{new_models_found} nuevos)")
+        logger.info(f"📊 Iteración {iteration + 1}: {len(unique_models)} modelos únicos (+{new_models_found} nuevos)")
         
-        # Si ya tenemos suficientes, terminar
+        # Si ya tenemos suficientes modelos únicos, terminar
         if len(unique_models) >= target_unique_models:
+            logger.info(f"✅ Objetivo alcanzado: {len(unique_models)} >= {target_unique_models}")
             break
         
-        # Si no encontramos nuevos modelos, expandir búsqueda
+        # Si no encontramos nuevos modelos, incrementar búsqueda
         if new_models_found == 0:
-            search_size = min(search_size * 2, 100)
+            search_size = min(search_size * 2, max_search_limit)
+            logger.info(f"🔄 Expandiendo búsqueda a {search_size}")
+            
+            if current_search_size >= max_search_limit:
+                logger.warning(f"⚠️ Alcanzado límite máximo de búsqueda: {max_search_limit}")
+                break
         else:
-            search_size = min(search_size + 20, 100)
+            search_size = min(search_size + 20, max_search_limit)
     
-    # Retornar top_k modelos únicos ordenados por similitud
+    # Ordenar por similitud y tomar top_k
     sorted_models = sorted(
         unique_models.values(),
         key=lambda x: x["similarity_score"],
         reverse=True
     )[:target_unique_models]
     
-    logger.info(f"✅ Resultado final: {len(sorted_models)} modelos únicos")
+    logger.info(f"🎉 Búsqueda completada: {len(sorted_models)} modelos únicos finales")
+    
     return sorted_models
 
 @router.post("/classify", response_model=ClassificationResponse)
@@ -133,7 +147,7 @@ async def classify_sneaker_by_image(
                 filters_applied["max_price"] = max_price
             filter_dict["price"] = price_filter
         
-        # 4. 🎯 NUEVA LÓGICA: Búsqueda optimizada por modelos únicos
+        # 4. 🎯 BÚSQUEDA OPTIMIZADA CON PARÁMETROS CORRECTOS
         logger.info(f"🔍 Buscando {top_k} modelos únicos en Pinecone...")
         unique_results = await search_unique_models_optimized(
             pinecone_service=pinecone_service,
@@ -146,7 +160,7 @@ async def classify_sneaker_by_image(
         results = []
         for i, result in enumerate(unique_results):
             sneaker_result = SneakerResult(
-                rank=i + 1,  # Rank basado en orden final
+                rank=i + 1,
                 similarity_score=result["similarity_score"],
                 confidence_percentage=result["confidence_percentage"],
                 confidence_level=get_confidence_level(result["similarity_score"]),
@@ -220,7 +234,7 @@ async def search_sneakers_by_text(
                 filters_applied["max_price"] = request.max_price
             filter_dict["price"] = price_filter
         
-        # 3. 🎯 USAR LA MISMA LÓGICA OPTIMIZADA
+        # 3. 🎯 USAR LA MISMA LÓGICA OPTIMIZADA CON PARÁMETROS CORRECTOS
         unique_results = await search_unique_models_optimized(
             pinecone_service=pinecone_service,
             embedding=embedding,

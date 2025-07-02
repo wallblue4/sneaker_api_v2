@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     
     # Configuración de aplicación
     MAX_IMAGE_SIZE: int = 10 * 1024 * 1024  # 10MB
-    MAX_TOP_K: int = 20
+    MAX_TOP_K: int = 50
     REQUEST_TIMEOUT: float = 60.0  # Más tiempo para Google API
     
     # Configuración de servidor
