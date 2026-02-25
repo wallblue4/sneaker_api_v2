@@ -27,34 +27,37 @@ class PineconeService:
             logger.warning("⚠️ PINECONE_API_KEY no configurada")
     
     async def search_similar(
-        self, 
-        query_embedding: List[float], 
+        self,
+        query_embedding: List[float],
         top_k: int = 5,
-        filter_dict: Optional[Dict] = None
+        filter_dict: Optional[Dict] = None,
+        namespace: str = ""
     ) -> List[Dict[str, Any]]:
         """
         Buscar vectores similares en Pinecone
-        
+
         Args:
             query_embedding: Vector de consulta
             top_k: Número de resultados
             filter_dict: Filtros de metadata
-            
+            namespace: Namespace de Pinecone para aislamiento multi-tenant
+
         Returns:
             Lista de resultados con metadata
         """
         if not self.index:
             logger.error("❌ Pinecone no inicializado")
             return []
-        
+
         try:
             # Limitar top_k para evitar costos excesivos
             top_k = min(top_k, settings.MAX_TOP_K)
-            
+
             query_params = {
                 "vector": query_embedding,
                 "top_k": top_k,
-                "include_metadata": True
+                "include_metadata": True,
+                "namespace": namespace
             }
             
             if filter_dict:
@@ -101,21 +104,23 @@ class PineconeService:
             return []
     
     async def search_by_brand(
-        self, 
-        query_embedding: List[float], 
-        brand: str, 
-        top_k: int = 5
+        self,
+        query_embedding: List[float],
+        brand: str,
+        top_k: int = 5,
+        namespace: str = ""
     ) -> List[Dict]:
         """Buscar solo en una marca específica"""
         filter_dict = {"brand": {"$eq": brand}}
-        return await self.search_similar(query_embedding, top_k, filter_dict)
-    
+        return await self.search_similar(query_embedding, top_k, filter_dict, namespace=namespace)
+
     async def search_by_price_range(
-        self, 
-        query_embedding: List[float], 
-        min_price: float, 
-        max_price: float, 
-        top_k: int = 5
+        self,
+        query_embedding: List[float],
+        min_price: float,
+        max_price: float,
+        top_k: int = 5,
+        namespace: str = ""
     ) -> List[Dict]:
         """Buscar en un rango de precios"""
         filter_dict = {
@@ -124,7 +129,7 @@ class PineconeService:
                 "$lte": max_price
             }
         }
-        return await self.search_similar(query_embedding, top_k, filter_dict)
+        return await self.search_similar(query_embedding, top_k, filter_dict, namespace=namespace)
     
     async def get_stats(self) -> Dict[str, Any]:
         """Obtener estadísticas del índice"""
