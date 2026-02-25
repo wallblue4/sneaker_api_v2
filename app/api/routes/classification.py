@@ -29,7 +29,8 @@ async def search_unique_models_optimized(
     pinecone_service,
     embedding: List[float],
     target_unique_models: int,
-    filter_dict: Optional[Dict] = None
+    filter_dict: Optional[Dict] = None,
+    namespace: str = ""
 ) -> List[Dict]:
     """
     Búsqueda optimizada para encontrar modelos únicos
@@ -46,11 +47,11 @@ async def search_unique_models_optimized(
         
         logger.info(f"🔍 Iteración {iteration + 1}: buscando {current_search_size} vectores")
         
-        # 🎯 CORRECCIÓN: Usar el nombre correcto del parámetro
         search_results = await pinecone_service.search_similar(
-            query_embedding=embedding,     # ✅ CORRECTO: query_embedding
-            top_k=current_search_size,     # ✅ CORRECTO: top_k
-            filter_dict=filter_dict        # ✅ CORRECTO: filter_dict
+            query_embedding=embedding,
+            top_k=current_search_size,
+            filter_dict=filter_dict,
+            namespace=namespace
         )
         
         if not search_results:
@@ -107,6 +108,7 @@ async def classify_sneaker_by_image(
     brand: Optional[str] = Query(None, description="Filtrar por marca específica"),
     min_price: Optional[float] = Query(None, ge=0, description="Precio mínimo"),
     max_price: Optional[float] = Query(None, ge=0, description="Precio máximo"),
+    namespace: str = Query("", description="Pinecone namespace para aislamiento multi-tenant"),
     services = Depends(get_services)
 ):
     """
@@ -147,13 +149,14 @@ async def classify_sneaker_by_image(
                 filters_applied["max_price"] = max_price
             filter_dict["price"] = price_filter
         
-        # 4. 🎯 BÚSQUEDA OPTIMIZADA CON PARÁMETROS CORRECTOS
-        logger.info(f"🔍 Buscando {top_k} modelos únicos en Pinecone...")
+        # 4. Búsqueda optimizada con namespace multi-tenant
+        logger.info(f"🔍 Buscando {top_k} modelos únicos en Pinecone (namespace='{namespace}')...")
         unique_results = await search_unique_models_optimized(
             pinecone_service=pinecone_service,
             embedding=embedding,
             target_unique_models=top_k,
-            filter_dict=filter_dict if filter_dict else None
+            filter_dict=filter_dict if filter_dict else None,
+            namespace=namespace
         )
         
         # 5. Formatear resultados
@@ -234,12 +237,13 @@ async def search_sneakers_by_text(
                 filters_applied["max_price"] = request.max_price
             filter_dict["price"] = price_filter
         
-        # 3. 🎯 USAR LA MISMA LÓGICA OPTIMIZADA CON PARÁMETROS CORRECTOS
+        # 3. Búsqueda optimizada con namespace multi-tenant
         unique_results = await search_unique_models_optimized(
             pinecone_service=pinecone_service,
             embedding=embedding,
             target_unique_models=request.top_k,
-            filter_dict=filter_dict if filter_dict else None
+            filter_dict=filter_dict if filter_dict else None,
+            namespace=request.namespace
         )
         
         # 4. Formatear resultados

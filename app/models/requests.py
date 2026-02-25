@@ -9,6 +9,7 @@ class SearchByTextRequest(BaseModel):
     brand: Optional[str] = Field(None, description="Filtrar por marca")
     min_price: Optional[float] = Field(None, ge=0, description="Precio mínimo")
     max_price: Optional[float] = Field(None, ge=0, description="Precio máximo")
+    namespace: str = Field("", description="Pinecone namespace para aislamiento multi-tenant")
 
 class SearchByBrandRequest(BaseModel):
     """Request para filtrar por marca"""

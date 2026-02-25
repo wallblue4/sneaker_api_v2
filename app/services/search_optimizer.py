@@ -11,7 +11,8 @@ async def search_unique_models_optimized(
     embedding: List[float],
     target_unique_models: int,
     filter_dict: Optional[Dict] = None,
-    max_iterations: int = 5
+    max_iterations: int = 5,
+    namespace: str = ""
 ) -> List[Dict]:
     """
     Búsqueda optimizada para encontrar modelos únicos sin cargar todos los vectores
@@ -39,7 +40,8 @@ async def search_unique_models_optimized(
         search_results = await pinecone_service.search_similar(
             embedding=embedding,
             top_k=current_search_size,
-            filter_dict=filter_dict
+            filter_dict=filter_dict,
+            namespace=namespace
         )
         
         if not search_results:
@@ -99,7 +101,8 @@ async def search_unique_models_fallback(
     pinecone_service,
     embedding: List[float],
     target_unique_models: int,
-    filter_dict: Optional[Dict] = None
+    filter_dict: Optional[Dict] = None,
+    namespace: str = ""
 ) -> List[Dict]:
     """
     Fallback: si la búsqueda optimizada no encuentra suficientes modelos,
@@ -113,7 +116,8 @@ async def search_unique_models_fallback(
     search_results = await pinecone_service.search_similar(
         embedding=embedding,
         top_k=large_search_size,
-        filter_dict=filter_dict
+        filter_dict=filter_dict,
+        namespace=namespace
     )
     
     if not search_results:
