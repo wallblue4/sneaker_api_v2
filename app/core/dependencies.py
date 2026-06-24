@@ -1,13 +1,21 @@
 # app/core/dependencies.py
-from fastapi import HTTPException, Depends
+from fastapi import HTTPException, Depends, Header
 from typing import Tuple, Optional
 import logging
+
+from app.core.config import settings
 
 # Variables globales para servicios (se inicializan en main.py)
 embedding_service = None
 pinecone_service = None
 
 logger = logging.getLogger(__name__)
+
+async def verify_api_key(x_api_key: Optional[str] = Header(None)):
+    """Autenticacion de servicio. Falla cerrado: rechaza si API_KEY no esta
+    configurada o si la cabecera X-API-Key no coincide."""
+    if not settings.API_KEY or x_api_key != settings.API_KEY:
+        raise HTTPException(status_code=403, detail="API key invalida o ausente")
 
 async def get_services():
     """Dependency injection para obtener servicios"""
