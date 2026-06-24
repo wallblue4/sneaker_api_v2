@@ -28,11 +28,6 @@ class Settings(BaseSettings):
     PORT: int = int(os.getenv("PORT", 10000))
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "production")
     
-    # CORS - dominios permitidos desde el entorno (separados por coma); sin wildcard
-    ALLOWED_ORIGINS: List[str] = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
-
-    ALLOWED_HOSTS: List[str] = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()]
-
     # Autenticacion de servicio (obligatoria): X-API-Key que envia el backend
     API_KEY: str = os.getenv("API_KEY", "")
 
@@ -49,3 +44,8 @@ class Settings(BaseSettings):
         return self.ENVIRONMENT == "production"
 
 settings = Settings()
+
+# CORS / Hosts: se calculan fuera del modelo para evitar que pydantic-settings
+# intente parsear el valor del entorno como JSON. Formato: separados por coma.
+ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()]

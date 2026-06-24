@@ -7,7 +7,7 @@ import logging
 import asyncio
 import time
 
-from app.core.config import settings
+from app.core.config import settings, ALLOWED_ORIGINS, ALLOWED_HOSTS
 from app.core.dependencies import set_services, verify_api_key
 from app.api.routes import classification, health
 
@@ -131,16 +131,16 @@ app = FastAPI(
 )
 
 # Middleware de seguridad - hosts confiables desde el entorno
-if settings.is_production and settings.ALLOWED_HOSTS:
+if settings.is_production and ALLOWED_HOSTS:
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=settings.ALLOWED_HOSTS
+        allowed_hosts=ALLOWED_HOSTS
     )
 
 # CORS - origenes desde el entorno; sin wildcard junto a credentials
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "X-API-Key"],
