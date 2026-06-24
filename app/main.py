@@ -1,6 +1,6 @@
 # app/main.py
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 import logging
@@ -8,7 +8,7 @@ import asyncio
 import time
 
 from app.core.config import settings
-from app.core.dependencies import set_services
+from app.core.dependencies import set_services, verify_api_key
 from app.api.routes import classification, health
 
 # Configurar logging
@@ -130,21 +130,20 @@ app = FastAPI(
     openapi_url="/openapi.json" if settings.is_development else None
 )
 
-# Middleware de seguridad
-if settings.is_production:
+# Middleware de seguridad - hosts confiables desde el entorno
+if settings.is_production and settings.ALLOWED_HOSTS:
     app.add_middleware(
-        TrustedHostMiddleware, 
-        allowed_hosts=["*"]  # En producción, especificar hosts exactos
+        TrustedHostMiddleware,
+        allowed_hosts=settings.ALLOWED_HOSTS
     )
 
-# CORS
+# CORS - origenes desde el entorno; sin wildcard junto a credentials
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_headers=["Content-Type", "X-API-Key"],
 )
 
 # Incluir routers
@@ -155,9 +154,10 @@ app.include_router(
 )
 
 app.include_router(
-    classification.router, 
-    prefix="/api/v2", 
-    tags=["🔍 Classification & Search"]
+    classification.router,
+    prefix="/api/v2",
+    tags=["🔍 Classification & Search"],
+    dependencies=[Depends(verify_api_key)]  # auth de servicio en todos los endpoints de negocio
 )
 
 @app.get("/")
