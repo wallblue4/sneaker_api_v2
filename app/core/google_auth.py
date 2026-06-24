@@ -2,6 +2,7 @@
 import os
 import json
 import tempfile
+import atexit
 from app.core.config import settings
 
 def setup_google_credentials():
@@ -18,11 +19,16 @@ def setup_google_credentials():
             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
                 json.dump(credentials_dict, f)
                 credentials_file = f.name
-            
+
+            # Permisos restrictivos explicitos (solo el owner) y limpieza al salir
+            os.chmod(credentials_file, 0o600)
+            atexit.register(lambda: os.path.exists(credentials_file) and os.unlink(credentials_file))
+
             # Configurar variable de entorno para Google Cloud
             os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_file
-            
-            print(f"✅ Credenciales Google Cloud configuradas")
+            del credentials_json, credentials_dict
+
+            print(f"✅ Credenciales Google Cloud configuradas (permisos 600)")
             return True
             
         except Exception as e:
